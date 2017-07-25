@@ -7,52 +7,56 @@ import (
 "bufio"
 "strings" // only needed below for sample processing
 "encoding/json"
-"os/signal"
-"syscall"
 )
 
-func main() {
+func handleRequest(conn net.Conn){
+    for{
+        message, err := bufio.NewReader(conn).ReadString('\n')
+        if err != nil {
+            fmt.Printf("Error:: %s \n", err.Error())
+            break
+        }
+        // sample process for string received
+        tuple := strings.Split(message, "@cee:")
+        if len(tuple) == 2 {
+            var m map[string]interface{}
+            err := json.Unmarshal([]byte(tuple[1]), &m)
+            if err != nil {
+              fmt.Printf("Json Parsing Failed: %s \n", err.Error())
+              continue
+            }
+            if t, ok := m["time"];ok {
+                fmt.Println(t) 
+            }   
+        }   
+    }
+    
+}
 
-    ch := make(chan os.Signal)
-    msgs := make(chan string)
-    signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)    
+func main() {
 
     fmt.Println("Launching server...")
 
     // listen on all interfaces
     addr := fmt.Sprintf("%s:%s", os.Getenv("SYSLOG_HOST"), os.Getenv("SYSLOG_PORT"))
-    ln, _ := net.Listen("tcp", addr)
+    ln, err := net.Listen("tcp", addr)
+    
+    if err != nil {
+        fmt.Println("Error listening:", err.Error())
+        os.Exit(1)
+    }
+    // Close the listener when the application closes.
+    defer ln.Close()
 
-    // accept connection on port
-    conn, _ := ln.Accept()
-
-    go func(c net.Conn, msgs chan string){
-        // will listen for message to process ending in newline (\n)
-        message, _ := bufio.NewReader(c).ReadString('\n')
-        msgs <- message
-    }(conn, msgs)
- 
     // run loop forever (or until ctrl-c)
     for {
-        select {
-        case <- ch:
-            os.Exit(0)
-        case message := <- msgs:
-            // sample process for string received
-            tuple := strings.Split(message, "@cee:")
-            if len(tuple) == 2 {
-                var m map[string]interface{}
-                err := json.Unmarshal([]byte(tuple[1]), &m)
-                if err != nil {
-                  fmt.Printf("Json Parsing Failed: %s \n", err.Error())
-                  continue
-                }
-                fmt.Println(m["time"])
-                if t, ok := m["time"];ok {
-                    fmt.Println(t) 
-                }
-            }
+        // Listen for an incoming connection.
+        conn, err := ln.Accept()
+        if err != nil {
+            fmt.Println("Error accepting: ", err.Error())
+            os.Exit(1)
         }
+        // Handle connections in a new goroutine.
+        go handleRequest(conn)
     }
-
 }
